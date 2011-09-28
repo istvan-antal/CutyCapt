@@ -26,6 +26,8 @@
 #include <QTimer>
 #include <QByteArray>
 #include <QNetworkRequest>
+#include <QNetworkDiskCache>
+#include <iostream>
 #include "CutyCapt.hpp"
 
 #if QT_VERSION >= 0x040600 && 0
@@ -321,6 +323,8 @@ CaptHelp(void) {
     "  --auto-load-images=<on|off>    Automatic image loading (default: on)        \n"
     "  --js-can-open-windows=<on|off> Script can open windows? (default: unknown)  \n"
     "  --js-can-access-clipboard=<on|off> Script clipboard privs (default: unknown)\n"
+    "  --cache-dir=<path>                                                          \n"
+    "  --max-cache-size=<size>                                                     \n"
 #if QT_VERSION >= 0x040500
     "  --print-backgrounds=<on|off>   Backgrounds in PDF/PS output (default: off)  \n"
     "  --zoom-factor=<float>          Page zoom factor (default: no zooming)       \n"
@@ -371,6 +375,8 @@ main(int argc, char *argv[]) {
   const char* argScriptObject = NULL;
   QString argOut;
 
+  QNetworkDiskCache* m_networkDiskCache;
+
   CutyCapt::OutputFormat format = CutyCapt::OtherFormat;
 
   QApplication app(argc, argv, true);
@@ -381,6 +387,11 @@ main(int argc, char *argv[]) {
   QByteArray body;
   QNetworkRequest req;
   QNetworkAccessManager manager;
+  quint64 maxCacheSize = 100*1024*1024;
+  QString cacheDir;
+
+
+
 
   // Parse command line parameters
   for (int ax = 1; ax < argc; ++ax) {
@@ -497,12 +508,16 @@ main(int argc, char *argv[]) {
     } else if (strncmp("--zoom-text-only", s, nlen) == 0) {
       page.setAttribute(QWebSettings::ZoomTextOnly, value);
 
+    } else if (strncmp("--cache-dir", s, nlen) == 0) {
+      cacheDir = QString(value);
+    } else if (strncmp("--max-cache-size", s, nlen) == 0) {
+      maxCacheSize = (quint64) QString(value).toULongLong();
     } else if (strncmp("--http-proxy", s, nlen) == 0) {
       QUrl p = QUrl::fromEncoded(value);
       QNetworkProxy proxy = QNetworkProxy(QNetworkProxy::HttpProxy,
         p.host(), p.port(80), p.userName(), p.password());
       manager.setProxy(proxy);
-      page.setNetworkAccessManager(&manager);
+
 #endif
 
 #if CUTYCAPT_SCRIPT
@@ -575,6 +590,16 @@ main(int argc, char *argv[]) {
       CaptHelp();
       return EXIT_FAILURE;
   }
+
+  m_networkDiskCache = new QNetworkDiskCache();
+  //
+  m_networkDiskCache->setCacheDirectory(cacheDir);
+  //std::cout << QDesktopServices::storageLocation(QDesktopServices::CacheLocation).toStdString() < "\n";
+  m_networkDiskCache->setMaximumCacheSize(maxCacheSize);
+  manager.setCache(m_networkDiskCache);
+  req.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::PreferCache);
+
+  page.setNetworkAccessManager(&manager);
 
   // This used to use QUrl(argUrl) but that escapes %hh sequences
   // even though it should not, as URLs can assumed to be escaped.
